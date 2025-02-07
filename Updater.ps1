@@ -147,11 +147,11 @@ function Invoke-ScriptUpdate {
         try {
             Write-Host "AutoUpdate: Signature validated."
             if (Test-Path $oldFullName) {
-                Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
+                #Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
             }
             Move-Item $scriptFullName $oldFullName
             Move-Item $tempFullName $scriptFullName
-            Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
+            #Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
             Write-Host "AutoUpdate: Succeeded."
             return $true
             else {
@@ -166,4 +166,4 @@ function Invoke-ScriptUpdate {
     return $false
 }
 
-Invoke-ScriptUpdate
+Get-ScriptUpdateAvailable
