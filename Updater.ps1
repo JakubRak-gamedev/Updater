@@ -82,7 +82,7 @@ function Get-ScriptUpdateAvailable {
     param (
         [Parameter(Mandatory = $false)]
         [string]
-        $VersionsUrl = "https://github.com/JakubRak-gamedev/Updater/blob/main/Version.csv"
+        $VersionsUrl = "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv"
     )
 
     $BuildVersion = "0.0.0"
@@ -123,4 +123,47 @@ function Get-ScriptUpdateAvailable {
     return $result
 }
 
-Get-ScriptUpdateAvailable
+function Invoke-ScriptUpdate {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+    [OutputType([boolean])]
+    param ()
+
+    $scriptName = $script:MyInvocation.MyCommand.Name
+    $scriptPath = [IO.Path]::GetDirectoryName($script:MyInvocation.MyCommand.Path)
+    $scriptFullName = (Join-Path $scriptPath $scriptName)
+
+    $oldName = [IO.Path]::GetFileNameWithoutExtension($scriptName) + ".old"
+    $oldFullName = (Join-Path $scriptPath $oldName)
+    $tempFullName = (Join-Path ((Get-Item $env:TEMP).FullName) $scriptName)
+
+    if ($PSCmdlet.ShouldProcess("$scriptName", "Update script to latest version")) {
+        try {
+            Invoke-WebRequestWithProxyDetection -Uri "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/$scriptName" -OutFile $tempFullName
+        } catch {
+            Write-Warning "AutoUpdate: Failed to download update: $($_.Exception.Message)"
+            return $false
+        }
+
+        try {
+            Write-Host "AutoUpdate: Signature validated."
+            if (Test-Path $oldFullName) {
+                Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
+            }
+            Move-Item $scriptFullName $oldFullName
+            Move-Item $tempFullName $scriptFullName
+            Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
+            Write-Host "AutoUpdate: Succeeded."
+            return $true
+            else {
+                Write-Warning "AutoUpdate: Signature could not be verified: $tempFullName."
+                Write-Warning "AutoUpdate: Update was not applied."
+            }
+        } catch {
+            Write-Warning "AutoUpdate: Failed to apply update: $($_.Exception.Message)"
+        }
+    }
+
+    return $false
+}
+
+Invoke-ScriptUpdate
