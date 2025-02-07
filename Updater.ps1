@@ -166,4 +166,4 @@ function Invoke-ScriptUpdate {
     return $false
 }
 
-Get-ScriptUpdateAvailable
+Invoke-ScriptUpdate
