@@ -1,4 +1,3 @@
-
 function Confirm-ProxyServer {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -129,7 +128,6 @@ function Get-ScriptUpdateAvailable {
 
     return $result
 }
-
 
 function Confirm-Signature {
     [CmdletBinding()]
@@ -293,8 +291,8 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUtqR1fjnCu/eUCpn7Ln1C/JQN
-# +3Cgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQU+2G5y2Xzcx1hhtKAtRSsg4ck
+# 246gggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -358,11 +356,11 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBQD0MTtyTCWboik4trmi/Oxo3LtyDANBgkqhkiG9w0B
-# AQEFAASCAQDFAw7CaSmIxskb/8aAUKHWYibKqux/WCEwTSZy/e7CaoaHgGX+4wxf
-# S2jJCwmQKrQFyF5xuyb3z7xCibJVrCaK6Z8LeIMHM55CTLnGg6XuBMA0egbDn3ye
-# z6xW5E/m7TAsxfd+cMsqERthUVFOuBZviseBiji29xS3rVV6Vzudhwc6zUlVQGmA
-# qF1OXd6Ry7SLPMAfvIdKgOmnfBfN0wLnymAfUxx/CQm0O45GtX3XyKwfKa7YjOYK
-# 3k+FisnURsQnYKOsGWNDh/iwB4LOz9rs2OIzMxk7LElnwqyqvZfZapHgOoeyopiN
-# yf/PqhraGhNrp0yiOBlFota+yl92g0FN
+# MCMGCSqGSIb3DQEJBDEWBBQVIL2TM8g12hZsHWe+mIDWq5HFBDANBgkqhkiG9w0B
+# AQEFAASCAQA28H5kfKTLGQNgO4UOuST6EI8TGxW/l3QwTY101Id1fdH2BqLe3z3D
+# +9agNlvy31uMx17UOiK69zBhJS8QgIV/ouei8UnVc9g+2o3vDwVKhJEZKK0+/UbY
+# HejFoYNs/APgu9eDvewULx1ujSIWpJUdQI2iNS/HE/26LSC29ayguqXAZzVvUX7X
+# 3dq1mY+jpaqz3MNYgwA2rAFgg39V9SI+0zo/o0eBotSnPuakVufqaQN8h6CrMOZe
+# 7S7Fp0TaDgEH2nUCpGZN5nKmq9M1HmTqV+AhEi/0p9qPLOpTtmzLgpFAn6IVhf4S
+# xnoEonZHejN5LCpZVE1baeH6tTEpKaxn
 # SIG # End signature block
