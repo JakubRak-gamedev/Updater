@@ -99,6 +99,7 @@ function Get-ScriptUpdateAvailable {
         ScriptName     = $scriptName
         CurrentVersion = $BuildVersion
         LatestVersion  = ""
+        LatestHash     = ""
         UpdateFound    = $false
         Error          = $null
     }
@@ -109,7 +110,9 @@ function Get-ScriptUpdateAvailable {
         try {
             $versionData = [Text.Encoding]::UTF8.GetString((Invoke-WebRequestWithProxyDetection -Uri $VersionsUrl -UseBasicParsing).Content) | ConvertFrom-Csv
             $latestVersion = ($versionData | Where-Object { $_.File -eq $scriptName }).Version
+            $latestHash = ($versionData | Where-Object { $_.File -eq $scriptName }).SHA256Hash
             $result.LatestVersion = $latestVersion
+            $result.LatestHash = $latestHash
             if ($null -ne $latestVersion) {
                 $result.UpdateFound = ($latestVersion -ne $BuildVersion)
             } else {
@@ -117,7 +120,7 @@ function Get-ScriptUpdateAvailable {
                     "`r`nThis can happen if the script has been renamed. Please check manually if there is a newer version of the script.")
             }
 
-            Write-Verbose "Current version: $($result.CurrentVersion) Latest version: $($result.LatestVersion) Update found: $($result.UpdateFound)"
+            Write-Verbose "Current version: $($result.CurrentVersion) Latest version: $($result.LatestVersion) Latest hash: $($result.LatestHash) Update found: $($result.UpdateFound)"
         } catch {
             Write-Verbose "Unable to check for updates: $($_.Exception)"
             $result.Error = $_
@@ -200,7 +203,11 @@ function Confirm-Signature {
 function Invoke-ScriptUpdate {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     [OutputType([boolean])]
-    param ()
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]
+        $VersionHash
+    )
 
     $scriptName = $script:MyInvocation.MyCommand.Name
     $scriptPath = [IO.Path]::GetDirectoryName($script:MyInvocation.MyCommand.Path)
@@ -217,20 +224,26 @@ function Invoke-ScriptUpdate {
             Write-Warning "AutoUpdate: Failed to download update: $($_.Exception.Message)"
             return $false
         }
-
         try {
-            if (Confirm-Signature -File $tempFullName) {
-                Write-Host "AutoUpdate: Signature validated."
-                if (Test-Path $oldFullName) {
+            $tempFileHash = (Get-FileHash -Path $tempFullName -Algorithm SHA256).Hash
+            if ($VersionHash -eq $tempFileHash) {
+                Write-Host "AutoUpdate: File hash validated."
+                if (Confirm-Signature -File $tempFullName) {
+                    Write-Host "AutoUpdate: Signature validated."
+                    if (Test-Path $oldFullName) {
+                        Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
+                    }
+                    Move-Item $scriptFullName $oldFullName
+                    Move-Item $tempFullName $scriptFullName
                     Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
-                }
-                Move-Item $scriptFullName $oldFullName
-                Move-Item $tempFullName $scriptFullName
-                Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
-                Write-Host "AutoUpdate: Succeeded."
-                return $true
-            } else {
+                    Write-Host "AutoUpdate: Succeeded."
+                    return $true
+                } else {
                 Write-Warning "AutoUpdate: Signature could not be verified: $tempFullName."
+                Write-Warning "AutoUpdate: Update was not applied."
+                }
+            } else {
+                Write-Warning "AutoUpdate: File hash is not valid: $tempFullName."
                 Write-Warning "AutoUpdate: Update was not applied."
             }
         } catch {
@@ -266,7 +279,7 @@ function Test-ScriptVersion {
     $updateInfo = Get-ScriptUpdateAvailable $VersionsUrl
     if ($updateInfo.UpdateFound) {
         if ($AutoUpdate) {
-            return Invoke-ScriptUpdate
+            return Invoke-ScriptUpdate -VersionHash $updateInfo.LatestHash
         } else {
             Write-Warning "$($updateInfo.ScriptName) $BuildVersion is outdated. Please download the latest, version $($updateInfo.LatestVersion)."
         }
@@ -280,8 +293,8 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUIUxESLAdhAboPY/nIwr9D/tp
-# huSgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUTxpS26w2whiZz005bcxkmfVe
+# tiugggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -345,11 +358,11 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBStWOIdSQt84FsngT0/wGvdf7NcVzANBgkqhkiG9w0B
-# AQEFAASCAQB4RerqQVQzK4YxmO1IeNEQX5k6cug2xnsnvmCJauBY6l2ISIOge+xI
-# Mpnd5nPwaJJE1gis01z+xFfrGruiKofXofYXYVsYgCFRbl+a1SyTN7GwRRzKmkZk
-# NoEBnzDRlvLp0PszgTm+T8erUJ7a00eqXoRf/Orr6Awe/yAm3+6ZLoeUCk1ERfiy
-# 1KcMpthxhEHClTraaHvLZBqaBeKyTREPJR7eGizZSiobhuBe5W2/I7V/d0L8Y0+L
-# rhbCD8exUi4hdTSIdxwGXuiw2IrwtknBjDdtyRUH6clSdNnCMJ08fNnW6TH7EWHh
-# sTv6b9a54Q3NHPnKqyi+bf564s0FOSNV
+# MCMGCSqGSIb3DQEJBDEWBBS98zRemQg/2M9VPHexGmCIHC61VTANBgkqhkiG9w0B
+# AQEFAASCAQBvs18Hqa3M5DCzAkXMWNqEo5FW/P6c+pCspuEpXKF0TKrFdC3kHg4e
+# xmrCc507P4lNlmkhnKAgeniQFKCuieC+cyscUR3BAaO1IY3nntfmtZLduzBv9nqU
+# 8L611+fAMX1YKPifS125G38d5A+HP9pvh+tMQDdWsre7M0i0h32lPuvcwrVE/mCC
+# 4x8W0YHrXs7H0SZxBfmucTbIDSMZDBZ2aqpXEsoZ7RUNOoN7MHOUC+y8I6/lYVdC
+# UNxpe56LOHHVJmw6JMoGs4qoDTUJ8YTF+oxga3tQHx8e81gt4XcqKxV+0zgn3qln
+# 2sAKqq0WDBtngpHRdt6thV9aymfIdReD
 # SIG # End signature block
