@@ -286,13 +286,22 @@ function Test-ScriptVersion {
     return $false
 }
 
+if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Warning "The script needs to be executed in elevated mode. Starting the script as an Administrator."
+    if ([int](Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty BuildNumber) -ge 6000) {
+        $CommandLine = "-File `"" + $MyInvocation.MyCommand.Path + "`" " + $MyInvocation.UnboundArguments
+        Start-Process -FilePath PowerShell.exe -Verb Runas -ArgumentList $CommandLine
+        exit
+    }
+}
+
 Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv" -Confirm:$false
 
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQU+2G5y2Xzcx1hhtKAtRSsg4ck
-# 246gggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUAK20P7Xj+ykao97idhn3tzD5
+# yVKgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -356,11 +365,11 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBQVIL2TM8g12hZsHWe+mIDWq5HFBDANBgkqhkiG9w0B
-# AQEFAASCAQA28H5kfKTLGQNgO4UOuST6EI8TGxW/l3QwTY101Id1fdH2BqLe3z3D
-# +9agNlvy31uMx17UOiK69zBhJS8QgIV/ouei8UnVc9g+2o3vDwVKhJEZKK0+/UbY
-# HejFoYNs/APgu9eDvewULx1ujSIWpJUdQI2iNS/HE/26LSC29ayguqXAZzVvUX7X
-# 3dq1mY+jpaqz3MNYgwA2rAFgg39V9SI+0zo/o0eBotSnPuakVufqaQN8h6CrMOZe
-# 7S7Fp0TaDgEH2nUCpGZN5nKmq9M1HmTqV+AhEi/0p9qPLOpTtmzLgpFAn6IVhf4S
-# xnoEonZHejN5LCpZVE1baeH6tTEpKaxn
+# MCMGCSqGSIb3DQEJBDEWBBQXsRjahWog+uRc6GYdnUIpt35NsjANBgkqhkiG9w0B
+# AQEFAASCAQCT9ixEk9WWCjQ5GnNqJX+wKIQUwxwlfCsrNcOqo234UgUCrSSTjRlJ
+# WO1pmdOCinR2/sGY6y1VbdaAk2wQjR+rxiV3WooszJSx0rm4+RrmlNtt18gMa3xi
+# 6PU8GX575Cop9sXQjif5aA8IaSEBuHtKVEedYctHwD77gj8nBMwYVzJlhcVKVFcp
+# ukp9qvDKvQADzP6vzIIo90bO8zpFHklf09Oxtiojb12e2MvtOAY0Xez+k6YXZJc8
+# jASVb8ps+QbtxxNPjj0TFFnZ6wipj1opXvSGXFei95veYtIwEQg2mFQKdnj6BwE4
+# ptlpyG/XqQURJTxhUAViGzp/BBNMYNXI
 # SIG # End signature block
