@@ -177,7 +177,7 @@ function Confirm-Signature {
             throw
         }
 
-        Write-Host "File signed by $($sig.SignerCertificate.Subject)"
+        Write-Verbose "File signed by $($sig.SignerCertificate.Subject)"
 
         $IsValid = $true
     } catch {
@@ -293,8 +293,8 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUTxpS26w2whiZz005bcxkmfVe
-# tiugggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUtqR1fjnCu/eUCpn7Ln1C/JQN
+# +3Cgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -358,11 +358,11 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBS98zRemQg/2M9VPHexGmCIHC61VTANBgkqhkiG9w0B
-# AQEFAASCAQBvs18Hqa3M5DCzAkXMWNqEo5FW/P6c+pCspuEpXKF0TKrFdC3kHg4e
-# xmrCc507P4lNlmkhnKAgeniQFKCuieC+cyscUR3BAaO1IY3nntfmtZLduzBv9nqU
-# 8L611+fAMX1YKPifS125G38d5A+HP9pvh+tMQDdWsre7M0i0h32lPuvcwrVE/mCC
-# 4x8W0YHrXs7H0SZxBfmucTbIDSMZDBZ2aqpXEsoZ7RUNOoN7MHOUC+y8I6/lYVdC
-# UNxpe56LOHHVJmw6JMoGs4qoDTUJ8YTF+oxga3tQHx8e81gt4XcqKxV+0zgn3qln
-# 2sAKqq0WDBtngpHRdt6thV9aymfIdReD
+# MCMGCSqGSIb3DQEJBDEWBBQD0MTtyTCWboik4trmi/Oxo3LtyDANBgkqhkiG9w0B
+# AQEFAASCAQDFAw7CaSmIxskb/8aAUKHWYibKqux/WCEwTSZy/e7CaoaHgGX+4wxf
+# S2jJCwmQKrQFyF5xuyb3z7xCibJVrCaK6Z8LeIMHM55CTLnGg6XuBMA0egbDn3ye
+# z6xW5E/m7TAsxfd+cMsqERthUVFOuBZviseBiji29xS3rVV6Vzudhwc6zUlVQGmA
+# qF1OXd6Ry7SLPMAfvIdKgOmnfBfN0wLnymAfUxx/CQm0O45GtX3XyKwfKa7YjOYK
+# 3k+FisnURsQnYKOsGWNDh/iwB4LOz9rs2OIzMxk7LElnwqyqvZfZapHgOoeyopiN
+# yf/PqhraGhNrp0yiOBlFota+yl92g0FN
 # SIG # End signature block
