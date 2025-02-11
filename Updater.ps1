@@ -1,3 +1,4 @@
+
 function Confirm-ProxyServer {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -76,6 +77,56 @@ function Invoke-WebRequestWithProxyDetection {
     }
 }
 
+<#
+    Determines if the script has an update available.
+#>
+function Get-ScriptUpdateAvailable {
+    [CmdletBinding()]
+    [OutputType([PSCustomObject])]
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]
+        $VersionsUrl
+    )
+
+    $BuildVersion = "0.0.0"
+
+    $scriptName = $script:MyInvocation.MyCommand.Name
+    $scriptPath = [IO.Path]::GetDirectoryName($script:MyInvocation.MyCommand.Path)
+    $scriptFullName = (Join-Path $scriptPath $scriptName)
+
+    $result = [PSCustomObject]@{
+        ScriptName     = $scriptName
+        CurrentVersion = $BuildVersion
+        LatestVersion  = ""
+        UpdateFound    = $false
+        Error          = $null
+    }
+
+    if ((Get-AuthenticodeSignature -FilePath $scriptFullName).Status -eq "NotSigned") {
+        Write-Warning "This script appears to be an unsigned test build. Skipping version check."
+    } else {
+        try {
+            $versionData = [Text.Encoding]::UTF8.GetString((Invoke-WebRequestWithProxyDetection -Uri $VersionsUrl -UseBasicParsing).Content) | ConvertFrom-Csv
+            $latestVersion = ($versionData | Where-Object { $_.File -eq $scriptName }).Version
+            $result.LatestVersion = $latestVersion
+            if ($null -ne $latestVersion) {
+                $result.UpdateFound = ($latestVersion -ne $BuildVersion)
+            } else {
+                Write-Warning ("Unable to check for a script update as no script with the same name was found." +
+                    "`r`nThis can happen if the script has been renamed. Please check manually if there is a newer version of the script.")
+            }
+
+            Write-Verbose "Current version: $($result.CurrentVersion) Latest version: $($result.LatestVersion) Update found: $($result.UpdateFound)"
+        } catch {
+            Write-Verbose "Unable to check for updates: $($_.Exception)"
+            $result.Error = $_
+        }
+    }
+
+    return $result
+}
+
 
 function Confirm-Signature {
     [CmdletBinding()]
@@ -89,11 +140,10 @@ function Confirm-Signature {
     $IsValid = $false
     $MicrosoftSigningRoot2010 = 'CN = PowerShellCA'
     $MicrosoftSigningRoot2011 = 'CN=Codegic Root CA G2, O=Codegic, C=PK'
-
+    
     try {
         $sig = Get-AuthenticodeSignature -FilePath $File
 
-    
         if ($sig.Status -ne 'Valid') {
             Write-Warning "Signature is not trusted by machine as Valid, status: $($sig.Status)."
             throw
@@ -134,53 +184,19 @@ function Confirm-Signature {
     $IsValid
 }
 
-function Get-ScriptUpdateAvailable {
-    [CmdletBinding()]
-    [OutputType([PSCustomObject])]
-    param (
-        [Parameter(Mandatory = $false)]
-        [string]
-        $VersionsUrl = "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv"
-    )
+<#
+.SYNOPSIS
+    Overwrites the current running script file with the latest version from the repository.
+.NOTES
+    This function always overwrites the current file with the latest file, which might be
+    the same. Get-ScriptUpdateAvailable should be called first to determine if an update is
+    needed.
 
-    $BuildVersion = "0.0.0"
-
-    $scriptName = $script:MyInvocation.MyCommand.Name
-    $scriptPath = [IO.Path]::GetDirectoryName($script:MyInvocation.MyCommand.Path)
-    $scriptFullName = (Join-Path $scriptPath $scriptName)
-
-    $result = [PSCustomObject]@{
-        ScriptName     = $scriptName
-        CurrentVersion = $BuildVersion
-        LatestVersion  = ""
-        UpdateFound    = $false
-        Error          = $null
-    }
-
-    if ((Get-AuthenticodeSignature -FilePath $scriptFullName).Status -eq "Signed") {
-        Write-Warning "This script appears to be an unsigned test build. Skipping version check."
-    } else {
-        try {
-            $versionData = [Text.Encoding]::UTF8.GetString((Invoke-WebRequestWithProxyDetection -Uri $VersionsUrl -UseBasicParsing).Content) | ConvertFrom-Csv
-            $latestVersion = ($versionData | Where-Object { $_.File -eq $scriptName }).Version
-            $result.LatestVersion = $latestVersion
-            if ($null -ne $latestVersion) {
-                $result.UpdateFound = ($latestVersion -ne $BuildVersion)
-            } else {
-                Write-Warning ("Unable to check for a script update as no script with the same name was found." +
-                    "`r`nThis can happen if the script has been renamed. Please check manually if there is a newer version of the script.")
-            }
-
-            Write-Verbose "Current version: $($result.CurrentVersion) Latest version: $($result.LatestVersion) Update found: $($result.UpdateFound)"
-        } catch {
-            Write-Verbose "Unable to check for updates: $($_.Exception)"
-            $result.Error = $_
-        }
-    }
-
-    return $result
-}
-
+    In many situations, updates are expected to fail, because the server running the script
+    does not have internet access. This function writes out failures as warnings, because we
+    expect that Get-ScriptUpdateAvailable was already called and it successfully reached out
+    to the internet.
+#>
 function Invoke-ScriptUpdate {
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     [OutputType([boolean])]
@@ -206,11 +222,11 @@ function Invoke-ScriptUpdate {
             if (Confirm-Signature -File $tempFullName) {
                 Write-Host "AutoUpdate: Signature validated."
                 if (Test-Path $oldFullName) {
-                    #Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
+                    Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
                 }
                 Move-Item $scriptFullName $oldFullName
                 Move-Item $tempFullName $scriptFullName
-                #Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
+                Remove-Item $oldFullName -Force -Confirm:$false -ErrorAction Stop
                 Write-Host "AutoUpdate: Succeeded."
                 return $true
             } else {
@@ -225,14 +241,47 @@ function Invoke-ScriptUpdate {
     return $false
 }
 
-Invoke-WebRequestWithProxyDetection -Uri "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/$scriptName" -OutFile $tempFullName
-Confirm-Signature -File $tempFullName
+<#
+    Determines if the script has an update available. Use the optional
+    -AutoUpdate switch to make it update itself. Pass -Confirm:$false
+    to update without prompting the user. Pass -Verbose for additional
+    diagnostic output.
+
+    Returns $true if an update was downloaded, $false otherwise. The
+    result will always be $false if the -AutoUpdate switch is not used.
+#>
+function Test-ScriptVersion {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '', Justification = 'Need to pass through ShouldProcess settings to Invoke-ScriptUpdate')]
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param (
+        [Parameter(Mandatory = $false)]
+        [switch]
+        $AutoUpdate,
+        [Parameter(Mandatory = $false)]
+        [string]
+        $VersionsUrl
+    )
+
+    $updateInfo = Get-ScriptUpdateAvailable $VersionsUrl
+    if ($updateInfo.UpdateFound) {
+        if ($AutoUpdate) {
+            return Invoke-ScriptUpdate
+        } else {
+            Write-Warning "$($updateInfo.ScriptName) $BuildVersion is outdated. Please download the latest, version $($updateInfo.LatestVersion)."
+        }
+    }
+
+    return $false
+}
+
+Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv" -Confirm:$false
 
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUoslGf3oJolNtrCg1QzEgsPNh
-# Dcugggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUIUxESLAdhAboPY/nIwr9D/tp
+# huSgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -296,11 +345,11 @@ Confirm-Signature -File $tempFullName
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBRIf3Wfyqx432donVrQDzDwFhN76zANBgkqhkiG9w0B
-# AQEFAASCAQAaydIm4bqo9u5e6rsgCPQ2kRkvgMcOgH2XnRzmhivKcps2mxyfoLqJ
-# At/bSpB7aTWBqet9st8pXhPf2vZQgU3b+TCxgZnZOSClaiWjQFfC7wrPaf/7ms8u
-# tCm3eDRbvsMCycRf8xB3IWbS3OTmTwHSPjtYlNE58R602bFBcOsEHyCQUSGGyuFj
-# OK2+UyRCbIKSDNQnmekGdxU9Fk1zx8nsfEpt+rj6UW0mJQnet8yR2fGNj9tx9YCA
-# loczchR7g5/mymiDTW4bDWd5AoBceT+TeMD3EhGeVXJ8kr6j9dH7JKQgLTeQSQXj
-# NX8g4K7wgG37PuiNfp7hnzIuguI+oGqo
+# MCMGCSqGSIb3DQEJBDEWBBStWOIdSQt84FsngT0/wGvdf7NcVzANBgkqhkiG9w0B
+# AQEFAASCAQB4RerqQVQzK4YxmO1IeNEQX5k6cug2xnsnvmCJauBY6l2ISIOge+xI
+# Mpnd5nPwaJJE1gis01z+xFfrGruiKofXofYXYVsYgCFRbl+a1SyTN7GwRRzKmkZk
+# NoEBnzDRlvLp0PszgTm+T8erUJ7a00eqXoRf/Orr6Awe/yAm3+6ZLoeUCk1ERfiy
+# 1KcMpthxhEHClTraaHvLZBqaBeKyTREPJR7eGizZSiobhuBe5W2/I7V/d0L8Y0+L
+# rhbCD8exUi4hdTSIdxwGXuiw2IrwtknBjDdtyRUH6clSdNnCMJ08fNnW6TH7EWHh
+# sTv6b9a54Q3NHPnKqyi+bf564s0FOSNV
 # SIG # End signature block
