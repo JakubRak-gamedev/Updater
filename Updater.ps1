@@ -87,11 +87,12 @@ function Confirm-Signature {
     )
 
     $IsValid = $false
-    # $MicrosoftSigningRoot2010 = 'CN=PowerShellCA, O=PowerShell Script - Jakub Rak'
-    # $MicrosoftSigningRoot2011 = 'CN=Microsoft Root Certificate Authority 2011, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
+    $MicrosoftSigningRoot2010 = 'CN = PowerShellCA'
+    $MicrosoftSigningRoot2011 = 'CN=Microsoft Root Certificate Authority 2011, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
 
     try {
         $sig = Get-AuthenticodeSignature -FilePath $File
+        Write-Host $sig.SignerCertificate
 
         if ($sig.Status -ne 'Valid') {
             Write-Warning "Signature is not trusted by machine as Valid, status: $($sig.Status)."
@@ -101,27 +102,27 @@ function Confirm-Signature {
         $chain = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Chain
         $chain.ChainPolicy.VerificationFlags = "IgnoreNotTimeValid"
 
-        # if (-not $chain.Build($sig.SignerCertificate)) {
-        #     Write-Warning "Signer certificate doesn't chain correctly."
-        #     throw
-        # }
+        if (-not $chain.Build($sig.SignerCertificate)) {
+            Write-Warning "Signer certificate doesn't chain correctly."
+            throw
+        }
 
-        # if ($chain.ChainElements.Count -le 1) {
-        #     Write-Warning "Certificate Chain shorter than expected."
-        #     throw
-        # }
+        if ($chain.ChainElements.Count -le 1) {
+            Write-Warning "Certificate Chain shorter than expected."
+            throw
+        }
 
         $rootCert = $chain.ChainElements[$chain.ChainElements.Count - 1]
-
+        Write-Host $chain.ChainElements.Count
         if ($rootCert.Certificate.Subject -ne $rootCert.Certificate.Issuer) {
             Write-Warning "Top-level certificate in chain is not a root certificate."
             throw
         }
 
-        # if ($rootCert.Certificate.Subject -ne $MicrosoftSigningRoot2010 -and $rootCert.Certificate.Subject -ne $MicrosoftSigningRoot2011) {
-        #     Write-Warning "Unexpected root cert. Expected $MicrosoftSigningRoot2010 or $MicrosoftSigningRoot2011, but found $($rootCert.Certificate.Subject)."
-        #     throw
-        # }
+        if ($rootCert.Certificate.Subject -ne $MicrosoftSigningRoot2010 -and $rootCert.Certificate.Subject -ne $MicrosoftSigningRoot2011) {
+            Write-Warning "Unexpected root cert. Expected $MicrosoftSigningRoot2010 or $MicrosoftSigningRoot2011, but found $($rootCert.Certificate.Subject)."
+            throw
+        }
 
         Write-Host "File signed by $($sig.SignerCertificate.Subject)"
 
@@ -224,37 +225,63 @@ function Invoke-ScriptUpdate {
     return $false
 }
 
-Invoke-ScriptUpdate
+
+$scriptName = $script:MyInvocation.MyCommand.Name
+$scriptPath = [IO.Path]::GetDirectoryName($script:MyInvocation.MyCommand.Path)
+$scriptFullName = (Join-Path $scriptPath $scriptName)
+
+$oldName = [IO.Path]::GetFileNameWithoutExtension($scriptName) + ".old"
+$oldFullName = (Join-Path $scriptPath $oldName)
+$tempFullName = (Join-Path ((Get-Item $env:TEMP).FullName) $scriptName)
+
+#Invoke-WebRequestWithProxyDetection -Uri "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/$scriptName" -OutFile $tempFullName
+Confirm-Signature -File $scriptFullName
 
 # SIG # Begin signature block
-# MIIFiAYJKoZIhvcNAQcCoIIFeTCCBXUCAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
+# MIIImQYJKoZIhvcNAQcCoIIIijCCCIYCAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUMCiPFZTvdlbFBtPSLjtoOA2N
-# exqgggMmMIIDIjCCAg6gAwIBAgIQ4+HT6HBtPLVOFZ+0C8SWxzAJBgUrDgMCHQUA
-# MBcxFTATBgNVBAMTDFBvd2VyU2hlbGxDQTAeFw0yNTAyMDcxMjMxNDVaFw0zOTEy
-# MzEyMzU5NTlaMCgxJjAkBgNVBAMTHVBvd2VyU2hlbGwgU2NyaXB0IC0gSmFrdWIg
-# UmFrMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2olY6Z/X8ssoBYR7
-# irJoagU92gqNY1KO7jGX+ikzf/g1YeBGdEeRa5PqEJLOkwE4DkAt4Us6xEH5Tgp9
-# U9Bqu9hJZULu9AAnrSzupJwrPMmXW5AiaZG257BBJZNIRmWNswoeQ+xsmo2G0bTS
-# 2p/K7jsMhU2DeLVhto45XmAPga1cFBDBg0C0CEcgxwHrz2K8GTayq9gdm5TmOk0j
-# 31j+1D3QGMq1HDFREHRcCKrQccsC3HuL69qpIV1cPWdbC40y+NeJ+cPhT31r6ArM
-# Udf0KPt9caoJe/n9ARQ/2zWIIMhcELcSAadUxj/x8lZxIX4tNGYDHiArb0hrKYtA
-# LSPXxQIDAQABo2EwXzATBgNVHSUEDDAKBggrBgEFBQcDAzBIBgNVHQEEQTA/gBBb
-# aMuNWajk3GcB9qPfFLv8oRkwFzEVMBMGA1UEAxMMUG93ZXJTaGVsbENBghCkGMXy
-# pe71lULXflDzW404MAkGBSsOAwIdBQADggEBAEfXFTpBjoTE8mcMYT+4QYOPphNy
-# tPw6aL10CuTIY+jixccq0irlyZL9h7AVbAcBwkoTwYrZaI9N35ChwwDHbqYmmlbC
-# P/R6PGnzutY684jozxmcpHQZKSLzZz3o2jMYAZsBeCVPy1YZVs94dYo73qFDJFeb
-# /DSBMaDqOWKmJZtN7GHB/eEhkArYSFB8ik4IX/4Kwso+apoayV8BU9DOSrQYbOy/
-# C6BqbfDswhS/5HnH4nspuexXFqZPCD1d+X4j2GEp1uYauB5F+WbeWQr0Fp2UsXQO
-# byPCQMK73bMydXbJpz6kbYCY38O6HPcouyWDZrg+OPlCv+z7kouvM160/AcxggHM
-# MIIByAIBATArMBcxFTATBgNVBAMTDFBvd2VyU2hlbGxDQQIQ4+HT6HBtPLVOFZ+0
-# C8SWxzAJBgUrDgMCGgUAoHgwGAYKKwYBBAGCNwIBDDEKMAigAoAAoQKAADAZBgkq
-# hkiG9w0BCQMxDAYKKwYBBAGCNwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGC
-# NwIBFTAjBgkqhkiG9w0BCQQxFgQUP8MjP4x4wQ3Fq5nUihc8xnoRdm8wDQYJKoZI
-# hvcNAQEBBQAEggEAA4DC57EM+J0/FcMLGkT007Cfy5lEKXf0PxojEBkA5eoxlSya
-# Pl3hAcbVUYrnctlve79Hb6rc3M3+fKNG4AUpZfmuZaSykRCcT4ASaRsn317Z4+oQ
-# cCevHBRZTOpmwFg1lT0485xQKUCX2aeDVK08MMpo1CucoTaQoeUKSudujjxbia1J
-# LyUMX7Q/AFAPj0bydZLpK0jhvt98kUY9LvQYsE5IbFyyFZXUvpi6fUagIYYq9BVA
-# ibO0oIgdXjEOuYg3Blkj3RWc+6SLVJeMuS+cN7zeBstPkgfZKv/ZDk/Vtg91pNss
-# bTgDWHO2rVW9efjp0neDyV4zj60LEDYcw862ag==
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUkyEPfuNnhCWFByJOuzKwrPud
+# Si2gggY0MIIDEDCCAfygAwIBAgIQBOpHyfZOEqRJYvW8/79TJzAJBgUrDgMCHQUA
+# MBcxFTATBgNVBAMTDFBvd2VyU2hlbGxDQTAeFw0yNTAyMDcxNDA1NDlaFw0zOTEy
+# MzEyMzU5NTlaMBoxGDAWBgNVBAMTD1Bvd2VyU2hlbGwgU0lJVDCCASIwDQYJKoZI
+# hvcNAQEBBQADggEPADCCAQoCggEBAL6JVeey7k5V9WVIkoJTqKsXJVNPcnyuktyn
+# KlBX71FojTFqCVaCWOpJRXUcOBQgWZl2qYlnEe/IyzCxbVb46na+DiNh5ajaDieF
+# u0e9Pdf89RKNuin9I3H67b8nK/4IskuORLBf9I8QWOJa0YcPKDdTI/ZhPwtsamNu
+# bm8TVP5WZo9tNkTp5KCUTH3q6zPZH81/xTJ4bwY/2Gw8A6lUlk/h0eSZr7c1Qr+g
+# j+NvD5TbJC5RKi/UNmpMi/2DusnS8zSSd7T+tIg1IAEr4JABo5XX1aYYTnU8i0yK
+# 6VoQODYZkFa7bHrzl1C7VXwiStT/+TpZ5OOskpmjH9SgX6FTNI0CAwEAAaNdMFsw
+# DwYDVR0TAQH/BAUwAwEB/zBIBgNVHQEEQTA/gBBbaMuNWajk3GcB9qPfFLv8oRkw
+# FzEVMBMGA1UEAxMMUG93ZXJTaGVsbENBghCkGMXype71lULXflDzW404MAkGBSsO
+# AwIdBQADggEBAAiNoKSn6Otq73MYVU9xRYJZN282s5Fp6SiTZWxgT9Cq9KSc+uEB
+# EGiZt7Fnb8OqrkWkZSpGhpfFxoc1mqcM0ptVmiY/OydEL0DS6GhrSqioLJb2X0EA
+# oiOXwm+Kf8wcCKsiLdzsxj+GFQBzDw/HkJJ6pQJcuoJdpljk73FZkV57dIGfnDME
+# QQ2bxaTJBKdG+KLj8q3CP0O++SHQb231UN9jQOcrjPnsMnkuH0DfwHcrfxW7Lijw
+# g30Ixexk1KXOr3cyNgBykcfTjrHzs+ZH2cgSo6OibINDMMVQhffPxoFLIM921PQm
+# nHUUQBW9yp2dvAoqe38idkPjKbfIe9BUscwwggMcMIICCKADAgECAhBHM9HoaWFU
+# lESOZx0uMzO+MAkGBSsOAwIdBQAwGjEYMBYGA1UEAxMPUG93ZXJTaGVsbCBTSUlU
+# MB4XDTI1MDIwNzE0MDU0OVoXDTM5MTIzMTIzNTk1OVowHzEdMBsGA1UEAxMUUG93
+# ZXJTaGVsbCBKYWt1YiBSYWswggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB
+# AQDIsYiLOMa4GYpiqCzCiLieCW3MLB3bZDHm4snUCKXqHjv2Pqw6y7HndiRUaRMT
+# sLhK4I2GrJlHet0oOUr63x/AIKQmuCpDS2Txp42MFzy5IWUD+ewErIXOSCeZ6ugH
+# q1YmwjzYc746yoZQ5hxFSYZggDoLpope5Rl+CB8hgaDpY+g6eW5+rwfC3XSM+6yd
+# pcuTpGQSVUj9rktzO9CE6bp3OAjVEMPlvYp/5rC+bz6UZcHPBonCfEYOw3DlMJoC
+# L3WkwvsNcvftjhBMJzaOtBR8sxUbVEgbc9VG+Nw+RC6ETHrhcWBrezqYSnBwKZn5
+# 0gHDWNOWCSSYQ2s4OXrhTed1AgMBAAGjYTBfMBMGA1UdJQQMMAoGCCsGAQUFBwMD
+# MEgGA1UdAQRBMD+AEHitN+sFK8gvjZR579A8a9+hGTAXMRUwEwYDVQQDEwxQb3dl
+# clNoZWxsQ0GCEATqR8n2ThKkSWL1vP+/UycwCQYFKw4DAh0FAAOCAQEARzOx7Rn6
+# v40xq9unz0wkm2IyXF8WO57zJ05mc+gucWbGfHyavVbspOPWmNiacTIGngFsIUgl
+# +YjXmoIpV+dGr+Vz67yZfwMvGtm3SccYLQjvsLuvQThY5lTa6oD6c5yYasAvIAgP
+# O0mwB6372/4WLZ+cOJ4Hz2TsrT1st/JdZOtMGc6/bUR/zzLOiFW5D2eB4vIZvvAK
+# 0h4ELJuDJxSRSczQfiusOYL+HXXS0tjiu2+ETZjGEybPLoBZULx+hMpAc4VxKgOh
+# f3lSxZCU3QpHrgETIlWnEPKVYKCTqrKW6Ac6CNxvA4YedB/IwMCaC43c84srXnWL
+# mA3c3vRNDS9C1TGCAc8wggHLAgEBMC4wGjEYMBYGA1UEAxMPUG93ZXJTaGVsbCBT
+# SUlUAhBHM9HoaWFUlESOZx0uMzO+MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEM
+# MQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQB
+# gjcCAQsxDjAMBgorBgEEAYI3AgEVMCMGCSqGSIb3DQEJBDEWBBRe2vH38sMfib1l
+# w+v6g1kp8FZfEDANBgkqhkiG9w0BAQEFAASCAQB82nKHFGt3t6dtXlKiRGCAKM6h
+# SpzPoBvMkEqiTqfyRH3fUyznnAHpUYzNYno6Vjxlcd9smY5DtOcuClw43Gqco/6z
+# 6wN59YHPfGfL8GmwzuB518kc0wk02k7F+qvI5TUPgcCr5vGK6cMDnfoOvtl0e6c5
+# Bgw4kW4A3cncGFqaYBi+WH+KIHGmuhPTccKl3Zx4wWEd63rkxnKK98M0po2QuVba
+# soC1J8KL5oQqRMvcG5/ZsivYl8A4Re44yAXHGfziqfRDIYr34QAYRO9UAxBMHM/3
+# Ku6EaovHdipC4/k89K8RRhEYw59NFhr2jHYJvj9Zyr836gWyDRf9d1UaHEqA
 # SIG # End signature block
