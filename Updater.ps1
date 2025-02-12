@@ -1,4 +1,8 @@
 <#
+.PARAMETER OutputFilePath
+	This optional parameter allows an output directory to be specified. Default location is the current directory.
+.PARAMETER AnalyzeDataOnly
+    Switch to analyze the existing HealthChecker XML files. The results are displayed on the screen and an HTML report is generated.
 .PARAMETER SkipVersionCheck
     No version check is performed when this switch is used.
 .PARAMETER ScriptUpdateOnly
@@ -6,12 +10,24 @@
 #>
 
 param(
-    [Parameter(Mandatory = $true, ParameterSetName = "ScriptUpdateOnly", HelpMessage = "Only attempt to update the script.")]
-    [switch]$ScriptUpdateOnly,
+    [Parameter(Mandatory = $false, HelpMessage = "Provide the location of where the output files should go.")]
+    [ValidateScript( { Test-Path $_ })]
+    [string]$OutputFilePath = ".",
 
-    [Parameter(Mandatory = $false, ParameterSetName = "HealthChecker", HelpMessage = "Skip over checking for a new updated version of the script.")]
-    [switch]$SkipVersionCheck
+    [Parameter(Mandatory = $false, HelpMessage = "Enable to reprocess the data that was previously collected and display to the screen")]
+    [switch]$AnalyzeDataOnly,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Skip over checking for a new updated version of the script.")]
+    [switch]$SkipVersionCheck,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Only attempt to update the script.")]
+    [switch]$ScriptUpdateOnly
 )
+
+$ScriptDisplayName = "Script Updater"
+$ScriptVersion = "0.0.0"
+$VersionsUrl = "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv"
+$ScriptUrl = "https://github.com/JakubRak-gamedev/Updater/releases/latest/download"
 
 function Write-HostLog ($message) {
     if ($Script:OutputFullPath) {
@@ -19,35 +35,26 @@ function Write-HostLog ($message) {
     }
 }
 
-function Write-DebugLog($message) {
-    if (![string]::IsNullOrEmpty($message)) {
-        $Script:Logger = $Script:Logger
-    }
-}
-
 function Write-Red($message) {
-    Write-DebugLog $message
     Write-Host $message -ForegroundColor Red
     Write-HostLog $message
 }
 
 function Write-Yellow($message) {
-    Write-DebugLog $message
     Write-Host $message -ForegroundColor Yellow
     Write-HostLog $message
 }
 
 function Write-Green($message) {
-    Write-DebugLog $message
     Write-Host $message -ForegroundColor Green
     Write-HostLog $message
 }
 
 function Write-Grey($message) {
-    Write-DebugLog $message
     Write-Host $message
     Write-HostLog $message
 }
+
 function Confirm-ProxyServer {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -138,15 +145,13 @@ function Get-ScriptUpdateAvailable {
         $VersionsUrl
     )
 
-    $BuildVersion = "0.0.0"
-
     $scriptName = $script:MyInvocation.MyCommand.Name
     $scriptPath = [IO.Path]::GetDirectoryName($script:MyInvocation.MyCommand.Path)
     $scriptFullName = (Join-Path $scriptPath $scriptName)
 
     $result = [PSCustomObject]@{
         ScriptName     = $scriptName
-        CurrentVersion = $BuildVersion
+        CurrentVersion = $ScriptVersion
         LatestVersion  = ""
         LatestHash     = ""
         UpdateFound    = $false
@@ -163,7 +168,7 @@ function Get-ScriptUpdateAvailable {
             $result.LatestVersion = $latestVersion
             $result.LatestHash = $latestHash
             if ($null -ne $latestVersion) {
-                $result.UpdateFound = ($latestVersion -ne $BuildVersion)
+                $result.UpdateFound = ($latestVersion -ne $ScriptVersion)
             } else {
                 Write-Warning ("Unable to check for a script update as no script with the same name was found." +
                     "`r`nThis can happen if the script has been renamed. Please check manually if there is a newer version of the script.")
@@ -267,7 +272,7 @@ function Invoke-ScriptUpdate {
 
     if ($PSCmdlet.ShouldProcess("$scriptName", "Update script to latest version")) {
         try {
-            Invoke-WebRequestWithProxyDetection -Uri "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/$scriptName" -OutFile $tempFullName
+            Invoke-WebRequestWithProxyDetection -Uri "$ScriptUrl/$scriptName" -OutFile $tempFullName
         } catch {
             Write-Warning "AutoUpdate: Failed to download update: $($_.Exception.Message)"
             return $false
@@ -329,14 +334,22 @@ function Test-ScriptVersion {
         if ($AutoUpdate) {
             return Invoke-ScriptUpdate -VersionHash $updateInfo.LatestHash
         } else {
-            Write-Warning "$($updateInfo.ScriptName) $BuildVersion is outdated. Please download the latest, version $($updateInfo.LatestVersion)."
+            Write-Warning "$($updateInfo.ScriptName) $ScriptVersion is outdated. Please download the latest, version $($updateInfo.LatestVersion)."
         }
     }
 
     return $false
 }
 
-if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+function Confirm-Administrator {
+    $currentPrincipal = New-Object Security.Principal.WindowsPrincipal( [Security.Principal.WindowsIdentity]::GetCurrent() )
+
+    return $currentPrincipal.IsInRole( [Security.Principal.WindowsBuiltInRole]::Administrator )
+}
+
+Write-Green "$ScriptDisplayName version $ScriptVersion"
+
+if (-not (Confirm-Administrator) -and (-not $AnalyzeDataOnly -and -not $ScriptUpdateOnly)) {
     Write-Warning "The script needs to be executed in elevated mode. Starting the script as an Administrator."
     if ([int](Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty BuildNumber) -ge 6000) {
         $CommandLine = "-File `"" + $MyInvocation.MyCommand.Path + "`" " + $MyInvocation.UnboundArguments
@@ -345,34 +358,20 @@ if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     }
 }
 
-if ($ScriptUpdateOnly) {`
-    # Invoke-SetOutputInstanceLocation -FileName "HealthChecker-ScriptUpdateOnly"
-    # $currentErrors = $Error.Count
-    switch (Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv" -Confirm:$false) {
-        ($true) { Write-Green("Script was successfully updated.") }
-        ($false) { Write-Yellow("No update of the script performed.") }
-        default { Write-Red("Unable to perform ScriptUpdateOnly operation.") }
-    }
-
-    # if ($currentErrors -ne $Error.Count) {
-    #     Write-Host ""
-    #     Write-Warning "Failed to get latest version of script details. Failing with this inner exception:"
-    #     Write-Host ""
-    #     $Error[$Error.Count - $currentErrors - 1] | Out-String | Write-Host -ForegroundColor Red
-    #     Write-Host ""
-    #     Write-Host "Address the above exception in order to get the script to auto update."
-    # }
-
-    # Invoke-ErrorCatchActionLoopFromIndex $currentErrors
-    return
+if ($ScriptUpdateOnly) {
+    return Test-ScriptVersion -AutoUpdate -VersionsUrl $VersionsUrl -Confirm:$false
 }
 
+if ((-not $SkipVersionCheck) -and (Test-ScriptVersion -AutoUpdate -VersionsUrl $VersionsUrl)) {
+    Write-Yellow "Script was updated. Please rerun the command."
+    return $true
+}
 
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUZV+af9v1MZ800/yfx2IWt7Py
-# MC+gggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUt/Fg5OTkhhSdzjH84CAdQVEn
+# MhWgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -436,11 +435,11 @@ if ($ScriptUpdateOnly) {`
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBQspJz1Vk1+sTCMfBdX8JRGTNTgyjANBgkqhkiG9w0B
-# AQEFAASCAQB2bwIELhspHBeIO5ObUBGJLZ5UQeNIGqWhj7Up47zK0rtaXsRlFxOX
-# fKerkirDgwOxWOzUtJMNx/RyxG8NcfLrAbcY9ovPtM6NokOEcFDw2Wg2Pd4207nn
-# pSDRfqOYik4wxPju6DrFFdjtxfOsMSbGZfYC/fTFX/DK07WviV/pMWNaWN0sFD5e
-# ZngpP3nPs5KQv+xlZIRpNOHK4LefnvKRECjiEUfbj9Zolr0TZPCi1R274t+uHGWP
-# P3QRf9YDK44+ZIYz2P+ZlYEzsr+PtivU+JnEIcfQISYUL8rCM8RZ95xJE3fmhdm3
-# OqOtVScU78+CK0QQc2xDPa+D3lyIMuwC
+# MCMGCSqGSIb3DQEJBDEWBBQajK5yBDIEG0Cq10405MgOhneXjTANBgkqhkiG9w0B
+# AQEFAASCAQBW3WAALpqJ/KL89zwVsLP2vpJfcQi8HhyBUe75JNFvhAR71q2ptq+8
+# Fj1A/9jpLQF1sSbvZYiyvO6r2maowOGzsbWiYoCu03Pv1ZjwtCBjTaR6Wz/nGnH3
+# nsRWvocjUQrYmNAiq0aIu4Fek1zaxn9PUUyFLs1EJvGTFChQ4nhZQ55d41IEAydM
+# yF5QdrA5tjZKd3K3T+gznmSxQukBGN6UHQhtHwOKlyr6YmFt8iXPunDXYtdv4iYK
+# rIUEP4XCeBES9bSSn9MqG7pAmVjMKs9uQNRwAfJRPYLj71YAWKU7kWQG+bZB6txi
+# UnqeuYUSGRC9f3FClffin2bOiandFQDg
 # SIG # End signature block
