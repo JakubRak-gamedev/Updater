@@ -1,3 +1,53 @@
+<#
+.PARAMETER SkipVersionCheck
+    No version check is performed when this switch is used.
+.PARAMETER ScriptUpdateOnly
+    Switch to check for the latest version of the script and perform an auto update. No elevated permissions or EMS are required.
+#>
+
+param(
+    [Parameter(Mandatory = $true, ParameterSetName = "ScriptUpdateOnly", HelpMessage = "Only attempt to update the script.")]
+    [switch]$ScriptUpdateOnly,
+
+    [Parameter(Mandatory = $false, ParameterSetName = "HealthChecker", HelpMessage = "Skip over checking for a new updated version of the script.")]
+    [switch]$SkipVersionCheck
+)
+
+function Write-HostLog ($message) {
+    if ($Script:OutputFullPath) {
+        $message | Out-File ($Script:OutputFullPath) -Append
+    }
+}
+
+function Write-DebugLog($message) {
+    if (![string]::IsNullOrEmpty($message)) {
+        $Script:Logger = $Script:Logger
+    }
+}
+
+function Write-Red($message) {
+    Write-DebugLog $message
+    Write-Host $message -ForegroundColor Red
+    Write-HostLog $message
+}
+
+function Write-Yellow($message) {
+    Write-DebugLog $message
+    Write-Host $message -ForegroundColor Yellow
+    Write-HostLog $message
+}
+
+function Write-Green($message) {
+    Write-DebugLog $message
+    Write-Host $message -ForegroundColor Green
+    Write-HostLog $message
+}
+
+function Write-Grey($message) {
+    Write-DebugLog $message
+    Write-Host $message
+    Write-HostLog $message
+}
 function Confirm-ProxyServer {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -295,13 +345,34 @@ if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     }
 }
 
-Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv" -Confirm:$false
+if ($ScriptUpdateOnly) {`
+    # Invoke-SetOutputInstanceLocation -FileName "HealthChecker-ScriptUpdateOnly"
+    # $currentErrors = $Error.Count
+    switch (Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev/Updater/releases/latest/download/Version.csv" -Confirm:$false) {
+        ($true) { Write-Green("Script was successfully updated.") }
+        ($false) { Write-Yellow("No update of the script performed.") }
+        default { Write-Red("Unable to perform ScriptUpdateOnly operation.") }
+    }
+
+    # if ($currentErrors -ne $Error.Count) {
+    #     Write-Host ""
+    #     Write-Warning "Failed to get latest version of script details. Failing with this inner exception:"
+    #     Write-Host ""
+    #     $Error[$Error.Count - $currentErrors - 1] | Out-String | Write-Host -ForegroundColor Red
+    #     Write-Host ""
+    #     Write-Host "Address the above exception in order to get the script to auto update."
+    # }
+
+    # Invoke-ErrorCatchActionLoopFromIndex $currentErrors
+    return
+}
+
 
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUAK20P7Xj+ykao97idhn3tzD5
-# yVKgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUZV+af9v1MZ800/yfx2IWt7Py
+# MC+gggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -365,11 +436,11 @@ Test-ScriptVersion -AutoUpdate -VersionsUrl "https://github.com/JakubRak-gamedev
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBQXsRjahWog+uRc6GYdnUIpt35NsjANBgkqhkiG9w0B
-# AQEFAASCAQCT9ixEk9WWCjQ5GnNqJX+wKIQUwxwlfCsrNcOqo234UgUCrSSTjRlJ
-# WO1pmdOCinR2/sGY6y1VbdaAk2wQjR+rxiV3WooszJSx0rm4+RrmlNtt18gMa3xi
-# 6PU8GX575Cop9sXQjif5aA8IaSEBuHtKVEedYctHwD77gj8nBMwYVzJlhcVKVFcp
-# ukp9qvDKvQADzP6vzIIo90bO8zpFHklf09Oxtiojb12e2MvtOAY0Xez+k6YXZJc8
-# jASVb8ps+QbtxxNPjj0TFFnZ6wipj1opXvSGXFei95veYtIwEQg2mFQKdnj6BwE4
-# ptlpyG/XqQURJTxhUAViGzp/BBNMYNXI
+# MCMGCSqGSIb3DQEJBDEWBBQspJz1Vk1+sTCMfBdX8JRGTNTgyjANBgkqhkiG9w0B
+# AQEFAASCAQB2bwIELhspHBeIO5ObUBGJLZ5UQeNIGqWhj7Up47zK0rtaXsRlFxOX
+# fKerkirDgwOxWOzUtJMNx/RyxG8NcfLrAbcY9ovPtM6NokOEcFDw2Wg2Pd4207nn
+# pSDRfqOYik4wxPju6DrFFdjtxfOsMSbGZfYC/fTFX/DK07WviV/pMWNaWN0sFD5e
+# ZngpP3nPs5KQv+xlZIRpNOHK4LefnvKRECjiEUfbj9Zolr0TZPCi1R274t+uHGWP
+# P3QRf9YDK44+ZIYz2P+ZlYEzsr+PtivU+JnEIcfQISYUL8rCM8RZ95xJE3fmhdm3
+# OqOtVScU78+CK0QQc2xDPa+D3lyIMuwC
 # SIG # End signature block
