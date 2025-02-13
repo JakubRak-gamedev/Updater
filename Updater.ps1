@@ -7,6 +7,8 @@
     No version check is performed when this switch is used.
 .PARAMETER ScriptUpdateOnly
     Switch to check for the latest version of the script and perform an auto update. No elevated permissions or EMS are required.
+.PARAMETER Verbose
+	This optional parameter enables verbose logging.
 #>
 
 param(
@@ -21,8 +23,13 @@ param(
     [switch]$SkipVersionCheck,
 
     [Parameter(Mandatory = $false, HelpMessage = "Only attempt to update the script.")]
-    [switch]$ScriptUpdateOnly
+    [switch]$ScriptUpdateOnly,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Always keep the debug log output at the end of the script.")]
+    [switch]$SaveDebugLog
 )
+
+begin {
 
 $ScriptDisplayName = "Script Updater"
 $ScriptVersion = "0.0.0"
@@ -38,21 +45,25 @@ function Write-HostLog ($message) {
 function Write-Red($message) {
     Write-Host $message -ForegroundColor Red
     Write-HostLog $message
+    Write-DebugLog $message
 }
 
 function Write-Yellow($message) {
     Write-Host $message -ForegroundColor Yellow
     Write-HostLog $message
+    Write-DebugLog $message
 }
 
 function Write-Green($message) {
     Write-Host $message -ForegroundColor Green
     Write-HostLog $message
+    Write-DebugLog $message
 }
 
 function Write-Grey($message) {
     Write-Host $message
     Write-HostLog $message
+    Write-DebugLog $message
 }
 
 function Confirm-ProxyServer {
@@ -133,9 +144,6 @@ function Invoke-WebRequestWithProxyDetection {
     }
 }
 
-<#
-    Determines if the script has an update available.
-#>
 function Get-ScriptUpdateAvailable {
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -347,31 +355,212 @@ function Confirm-Administrator {
     return $currentPrincipal.IsInRole( [Security.Principal.WindowsBuiltInRole]::Administrator )
 }
 
-Write-Green "$ScriptDisplayName version $ScriptVersion"
+function Get-NewLoggerInstance {
+    [CmdletBinding()]
+    param(
+        [string]$LogDirectory = (Get-Location).Path,
 
-if (-not (Confirm-Administrator) -and (-not $AnalyzeDataOnly -and -not $ScriptUpdateOnly)) {
-    Write-Warning "The script needs to be executed in elevated mode. Starting the script as an Administrator."
-    if ([int](Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty BuildNumber) -ge 6000) {
-        $CommandLine = "-File `"" + $MyInvocation.MyCommand.Path + "`" " + $MyInvocation.UnboundArguments
-        Start-Process -FilePath PowerShell.exe -Verb Runas -ArgumentList $CommandLine
-        exit
+        [ValidateNotNullOrEmpty()]
+        [string]$LogName = "Script_Logging",
+
+        [bool]$AppendDateTime = $true,
+
+        [bool]$AppendDateTimeToFileName = $true,
+
+        [int]$MaxFileSizeMB = 10,
+
+        [int]$CheckSizeIntervalMinutes = 10,
+
+        [int]$NumberOfLogsToKeep = 10
+    )
+
+    $fileName = if ($AppendDateTimeToFileName) { "{0}_{1}.txt" -f $LogName, ((Get-Date).ToString('yyyyMMddHHmmss')) } else { "$LogName.txt" }
+    $fullFilePath = [System.IO.Path]::Combine($LogDirectory, $fileName)
+
+    if (-not (Test-Path $LogDirectory)) {
+        try {
+            New-Item -ItemType Directory -Path $LogDirectory -ErrorAction Stop | Out-Null
+        } catch {
+            throw "Failed to create Log Directory: $LogDirectory. Inner Exception: $_"
+        }
+    }
+
+    return [PSCustomObject]@{
+        FullPath                 = $fullFilePath
+        AppendDateTime           = $AppendDateTime
+        MaxFileSizeMB            = $MaxFileSizeMB
+        CheckSizeIntervalMinutes = $CheckSizeIntervalMinutes
+        NumberOfLogsToKeep       = $NumberOfLogsToKeep
+        BaseInstanceFileName     = $fileName.Replace(".txt", "")
+        Instance                 = 1
+        NextFileCheckTime        = ((Get-Date).AddMinutes($CheckSizeIntervalMinutes))
+        PreventLogCleanup        = $false
+        LoggerDisabled           = $false
+    } | Write-LoggerInstance -Object "Starting Logger Instance $(Get-Date)"
+}
+
+function Write-LoggerInstance {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [object]$LoggerInstance,
+
+        [Parameter(Mandatory = $true, Position = 1)]
+        [object]$Object
+    )
+    process {
+        if ($LoggerInstance.LoggerDisabled) { return }
+
+        if ($LoggerInstance.AppendDateTime -and
+            $Object.GetType().Name -eq "string") {
+            $Object = "[$([System.DateTime]::Now)] : $Object"
+        }
+
+        # Doing WhatIf:$false to support -WhatIf in main scripts but still log the information
+        $Object | Out-File $LoggerInstance.FullPath -Append -WhatIf:$false
+
+        #Upkeep of the logger information
+        if ($LoggerInstance.NextFileCheckTime -gt [System.DateTime]::Now) {
+            return
+        }
+
+        #Set next update time to avoid issues so we can log things
+        $LoggerInstance.NextFileCheckTime = ([System.DateTime]::Now).AddMinutes($LoggerInstance.CheckSizeIntervalMinutes)
+        $item = Get-ChildItem $LoggerInstance.FullPath
+
+        if (($item.Length / 1MB) -gt $LoggerInstance.MaxFileSizeMB) {
+            $LoggerInstance | Write-LoggerInstance -Object "Max file size reached rolling over" | Out-Null
+            $directory = [System.IO.Path]::GetDirectoryName($LoggerInstance.FullPath)
+            $fileName = "$($LoggerInstance.BaseInstanceFileName)-$($LoggerInstance.Instance).txt"
+            $LoggerInstance.Instance++
+            $LoggerInstance.FullPath = [System.IO.Path]::Combine($directory, $fileName)
+
+            $items = Get-ChildItem -Path ([System.IO.Path]::GetDirectoryName($LoggerInstance.FullPath)) -Filter "*$($LoggerInstance.BaseInstanceFileName)*"
+
+            if ($items.Count -gt $LoggerInstance.NumberOfLogsToKeep) {
+                $item = $items | Sort-Object LastWriteTime | Select-Object -First 1
+                $LoggerInstance | Write-LoggerInstance "Removing Log File $($item.FullName)" | Out-Null
+                $item | Remove-Item -Force
+            }
+        }
+    }
+    end {
+        return $LoggerInstance
     }
 }
 
-if ($ScriptUpdateOnly) {
-    return Test-ScriptVersion -AutoUpdate -VersionsUrl $VersionsUrl -Confirm:$false
+function Write-DebugLog($message) {
+    if (![string]::IsNullOrEmpty($message)) {
+        $Script:Logger = $Script:Logger | Write-LoggerInstance $message
+    }
 }
 
-if ((-not $SkipVersionCheck) -and (Test-ScriptVersion -AutoUpdate -VersionsUrl $VersionsUrl)) {
-    Write-Yellow "Script was updated. Please rerun the command."
-    return $true
+function Invoke-SetOutputInstanceLocation {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FileName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Server,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$IncludeServerName = $false
+    )
+    $endName = "-{0}.txt" -f $Script:dateTimeStringFormat
+
+    if ($IncludeServerName) {
+        $endName = "-{0}{1}" -f $Server, $endName
+    }
+
+    $Script:OutputFullPath = Join-Path -Path $Script:OutputFilePath -ChildPath ('{0}{1}' -f $FileName, $endName)
+    $Script:OutXmlFullPath = [System.IO.Path]::ChangeExtension($Script:OutputFullPath, 'xml')
+}
+
+function Invoke-LoggerInstanceCleanup {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [object]$LoggerInstance
+    )
+    process {
+        if ($LoggerInstance.LoggerDisabled -or
+            $LoggerInstance.PreventLogCleanup) {
+            return
+        }
+
+        Get-ChildItem -Path ([System.IO.Path]::GetDirectoryName($LoggerInstance.FullPath)) -Filter "*$($LoggerInstance.BaseInstanceFileName)*" |
+            Remove-Item -Force
+    }
+}
+
+    $scriptFileName = $script:MyInvocation.MyCommand.Name
+
+    $Script:VerboseEnabled = $false
+    #this is to set the verbose information to a different color
+    if ($PSBoundParameters["Verbose"]) {
+        #Write verbose output in cyan since we already use yellow for warnings
+        $Script:VerboseEnabled = $true
+        $VerboseForeground = $Host.PrivateData.VerboseForegroundColor
+        $Host.PrivateData.VerboseForegroundColor = "Cyan"
+    }
+
+    $Script:ServerNameList = New-Object System.Collections.Generic.List[string]
+    $Script:Logger = Get-NewLoggerInstance -LogName "$scriptFileName-Debug" `
+        -LogDirectory $Script:OutputFilePath `
+        -AppendDateTime $false `
+        -ErrorAction SilentlyContinue
+
+#   
+    # Get Current Date
+    $Script:date = (Get-Date)
+    $Script:dateTimeStringFormat = $date.ToString("yyyyMMddHHmmss")
+
+    Invoke-SetOutputInstanceLocation -FileName $scriptFileName -Server "SERVERNAME" -IncludeServerName $true
+    Write-Green "$ScriptDisplayName version $ScriptVersion"
+    Write-DebugLog("debug message")
+
+} process {
+
+    if (-not (Confirm-Administrator) -and (-not $AnalyzeDataOnly -and -not $ScriptUpdateOnly)) {
+        Write-Warning "The script needs to be executed in elevated mode. Starting the script as an Administrator."
+        if ([int](Get-CimInstance -Class Win32_OperatingSystem | Select-Object -ExpandProperty BuildNumber) -ge 6000) {
+            $CommandLine = "-File `"" + $MyInvocation.MyCommand.Path + "`" " + $MyInvocation.UnboundArguments
+            Start-Process -FilePath PowerShell.exe -Verb Runas -ArgumentList $CommandLine
+            exit
+        }
+    }
+
+    if ($ScriptUpdateOnly) {
+        return Test-ScriptVersion -AutoUpdate -VersionsUrl $VersionsUrl -Confirm:$false
+    }
+
+    if ((-not $SkipVersionCheck) -and (Test-ScriptVersion -AutoUpdate -VersionsUrl $VersionsUrl)) {
+        Write-Yellow "Script was updated. Please rerun the command."
+        return $true
+    }
+
+} end {
+
+    if ($Script:VerboseEnabled) {
+        $Host.PrivateData.VerboseForegroundColor = $VerboseForeground
+    }
+
+    if($Script:VerboseEnabled -or $SaveDebugLog) {
+        Write-Verbose "All errors that occurred were in try catch blocks and was handled correctly."
+        $Script:Logger.PreventLogCleanup = $true
+    }
+
+    $Script:Logger | Invoke-LoggerInstanceCleanup
+        if ($Script:Logger.PreventLogCleanup) {
+            Write-Host("Output Debug file written to {0}" -f $Script:Logger.FullPath)
+        }
 }
 
 # SIG # Begin signature block
 # MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUt/Fg5OTkhhSdzjH84CAdQVEn
-# MhWgggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUEgywgjQkgR5y89o1/yPGnQqT
+# YPugggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
 # hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
 # BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
 # WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
@@ -435,11 +624,11 @@ if ((-not $SkipVersionCheck) -and (Test-ScriptVersion -AutoUpdate -VersionsUrl $
 # aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
 # MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
 # DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBQajK5yBDIEG0Cq10405MgOhneXjTANBgkqhkiG9w0B
-# AQEFAASCAQBW3WAALpqJ/KL89zwVsLP2vpJfcQi8HhyBUe75JNFvhAR71q2ptq+8
-# Fj1A/9jpLQF1sSbvZYiyvO6r2maowOGzsbWiYoCu03Pv1ZjwtCBjTaR6Wz/nGnH3
-# nsRWvocjUQrYmNAiq0aIu4Fek1zaxn9PUUyFLs1EJvGTFChQ4nhZQ55d41IEAydM
-# yF5QdrA5tjZKd3K3T+gznmSxQukBGN6UHQhtHwOKlyr6YmFt8iXPunDXYtdv4iYK
-# rIUEP4XCeBES9bSSn9MqG7pAmVjMKs9uQNRwAfJRPYLj71YAWKU7kWQG+bZB6txi
-# UnqeuYUSGRC9f3FClffin2bOiandFQDg
+# MCMGCSqGSIb3DQEJBDEWBBRKX/QwKoRdXtIH7u8BM1WRtMKWUTANBgkqhkiG9w0B
+# AQEFAASCAQCYzdFQPzTYTtJdO6Jd+29lueIBOb8/scx2+oyq0hylsUL5sdrmqf6m
+# rlnfUVxuvJbYME8or6jJgUhSjFdMcIXC3OFLi5MPIbXpKmxMAO++R6JwnGIijDM8
+# 1L0pNSNd7iDwkSkzIY9LUjSLCUebVVq26tg2ESaOt07oOiB5Fx5A0I8qofLTjUPL
+# 2RyzYgTI7Bm5/UIn41uBeMItqHC3bE5sAgTkAoJYuVkCtul8wXuEnzvspsPlAuCC
+# LuQi1c+ywdiZXZiEuz5YjfD8qm2aMVbRBeKwfqCczMVazjsDQ3TkOLt2C3WMXQcQ
+# eo0Gzi7ZmUjm0yRpErU9FTNoVrR2cBrU
 # SIG # End signature block
