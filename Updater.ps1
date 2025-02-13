@@ -23,10 +23,7 @@ param(
     [switch]$SkipVersionCheck,
 
     [Parameter(Mandatory = $false, HelpMessage = "Only attempt to update the script.")]
-    [switch]$ScriptUpdateOnly,
-
-    [Parameter(Mandatory = $false, HelpMessage = "Always keep the debug log output at the end of the script.")]
-    [switch]$SaveDebugLog
+    [switch]$ScriptUpdateOnly
 )
 
 begin {
@@ -45,25 +42,21 @@ function Write-HostLog ($message) {
 function Write-Red($message) {
     Write-Host $message -ForegroundColor Red
     Write-HostLog $message
-    Write-DebugLog $message
 }
 
 function Write-Yellow($message) {
     Write-Host $message -ForegroundColor Yellow
     Write-HostLog $message
-    Write-DebugLog $message
 }
 
 function Write-Green($message) {
     Write-Host $message -ForegroundColor Green
     Write-HostLog $message
-    Write-DebugLog $message
 }
 
 function Write-Grey($message) {
     Write-Host $message
     Write-HostLog $message
-    Write-DebugLog $message
 }
 
 function Confirm-ProxyServer {
@@ -355,107 +348,7 @@ function Confirm-Administrator {
     return $currentPrincipal.IsInRole( [Security.Principal.WindowsBuiltInRole]::Administrator )
 }
 
-function Get-NewLoggerInstance {
-    [CmdletBinding()]
-    param(
-        [string]$LogDirectory = (Get-Location).Path,
-
-        [ValidateNotNullOrEmpty()]
-        [string]$LogName = "Script_Logging",
-
-        [bool]$AppendDateTime = $true,
-
-        [bool]$AppendDateTimeToFileName = $true,
-
-        [int]$MaxFileSizeMB = 10,
-
-        [int]$CheckSizeIntervalMinutes = 10,
-
-        [int]$NumberOfLogsToKeep = 10
-    )
-
-    $fileName = if ($AppendDateTimeToFileName) { "{0}_{1}.txt" -f $LogName, ((Get-Date).ToString('yyyyMMddHHmmss')) } else { "$LogName.txt" }
-    $fullFilePath = [System.IO.Path]::Combine($LogDirectory, $fileName)
-
-    if (-not (Test-Path $LogDirectory)) {
-        try {
-            New-Item -ItemType Directory -Path $LogDirectory -ErrorAction Stop | Out-Null
-        } catch {
-            throw "Failed to create Log Directory: $LogDirectory. Inner Exception: $_"
-        }
-    }
-
-    return [PSCustomObject]@{
-        FullPath                 = $fullFilePath
-        AppendDateTime           = $AppendDateTime
-        MaxFileSizeMB            = $MaxFileSizeMB
-        CheckSizeIntervalMinutes = $CheckSizeIntervalMinutes
-        NumberOfLogsToKeep       = $NumberOfLogsToKeep
-        BaseInstanceFileName     = $fileName.Replace(".txt", "")
-        Instance                 = 1
-        NextFileCheckTime        = ((Get-Date).AddMinutes($CheckSizeIntervalMinutes))
-        PreventLogCleanup        = $false
-        LoggerDisabled           = $false
-    } | Write-LoggerInstance -Object "Starting Logger Instance $(Get-Date)"
-}
-
-function Write-LoggerInstance {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        [object]$LoggerInstance,
-
-        [Parameter(Mandatory = $true, Position = 1)]
-        [object]$Object
-    )
-    process {
-        if ($LoggerInstance.LoggerDisabled) { return }
-
-        if ($LoggerInstance.AppendDateTime -and
-            $Object.GetType().Name -eq "string") {
-            $Object = "[$([System.DateTime]::Now)] : $Object"
-        }
-
-        # Doing WhatIf:$false to support -WhatIf in main scripts but still log the information
-        $Object | Out-File $LoggerInstance.FullPath -Append -WhatIf:$false
-
-        #Upkeep of the logger information
-        if ($LoggerInstance.NextFileCheckTime -gt [System.DateTime]::Now) {
-            return
-        }
-
-        #Set next update time to avoid issues so we can log things
-        $LoggerInstance.NextFileCheckTime = ([System.DateTime]::Now).AddMinutes($LoggerInstance.CheckSizeIntervalMinutes)
-        $item = Get-ChildItem $LoggerInstance.FullPath
-
-        if (($item.Length / 1MB) -gt $LoggerInstance.MaxFileSizeMB) {
-            $LoggerInstance | Write-LoggerInstance -Object "Max file size reached rolling over" | Out-Null
-            $directory = [System.IO.Path]::GetDirectoryName($LoggerInstance.FullPath)
-            $fileName = "$($LoggerInstance.BaseInstanceFileName)-$($LoggerInstance.Instance).txt"
-            $LoggerInstance.Instance++
-            $LoggerInstance.FullPath = [System.IO.Path]::Combine($directory, $fileName)
-
-            $items = Get-ChildItem -Path ([System.IO.Path]::GetDirectoryName($LoggerInstance.FullPath)) -Filter "*$($LoggerInstance.BaseInstanceFileName)*"
-
-            if ($items.Count -gt $LoggerInstance.NumberOfLogsToKeep) {
-                $item = $items | Sort-Object LastWriteTime | Select-Object -First 1
-                $LoggerInstance | Write-LoggerInstance "Removing Log File $($item.FullName)" | Out-Null
-                $item | Remove-Item -Force
-            }
-        }
-    }
-    end {
-        return $LoggerInstance
-    }
-}
-
-function Write-DebugLog($message) {
-    if (![string]::IsNullOrEmpty($message)) {
-        $Script:Logger = $Script:Logger | Write-LoggerInstance $message
-    }
-}
-
-function Invoke-SetOutputInstanceLocation {
+function New-LoggerInstance {
     param(
         [Parameter(Mandatory = $true)]
         [string]$FileName,
@@ -466,32 +359,15 @@ function Invoke-SetOutputInstanceLocation {
         [Parameter(Mandatory = $false)]
         [bool]$IncludeServerName = $false
     )
-    $endName = "-{0}.txt" -f $Script:dateTimeStringFormat
+    $endName = "_{0}.txt" -f $Script:dateTimeStringFormat
 
     if ($IncludeServerName) {
-        $endName = "-{0}{1}" -f $Server, $endName
+        $endName = "_{0}{1}" -f $Server, $endName
     }
 
     $Script:OutputFullPath = Join-Path -Path $Script:OutputFilePath -ChildPath ('{0}{1}' -f $FileName, $endName)
-    $Script:OutXmlFullPath = [System.IO.Path]::ChangeExtension($Script:OutputFullPath, 'xml')
 }
 
-function Invoke-LoggerInstanceCleanup {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        [object]$LoggerInstance
-    )
-    process {
-        if ($LoggerInstance.LoggerDisabled -or
-            $LoggerInstance.PreventLogCleanup) {
-            return
-        }
-
-        Get-ChildItem -Path ([System.IO.Path]::GetDirectoryName($LoggerInstance.FullPath)) -Filter "*$($LoggerInstance.BaseInstanceFileName)*" |
-            Remove-Item -Force
-    }
-}
 
     $scriptFileName = $script:MyInvocation.MyCommand.Name
 
@@ -504,20 +380,11 @@ function Invoke-LoggerInstanceCleanup {
         $Host.PrivateData.VerboseForegroundColor = "Cyan"
     }
 
-    $Script:ServerNameList = New-Object System.Collections.Generic.List[string]
-    $Script:Logger = Get-NewLoggerInstance -LogName "$scriptFileName-Debug" `
-        -LogDirectory $Script:OutputFilePath `
-        -AppendDateTime $false `
-        -ErrorAction SilentlyContinue
-
-#   
-    # Get Current Date
     $Script:date = (Get-Date)
     $Script:dateTimeStringFormat = $date.ToString("yyyyMMddHHmmss")
 
-    Invoke-SetOutputInstanceLocation -FileName $scriptFileName -Server "SERVERNAME" -IncludeServerName $true
+    New-LoggerInstance -FileName $scriptFileName -Server $env:COMPUTERNAME -IncludeServerName $true
     Write-Green "$ScriptDisplayName version $ScriptVersion"
-    Write-DebugLog("debug message")
 
 } process {
 
@@ -545,90 +412,4 @@ function Invoke-LoggerInstanceCleanup {
         $Host.PrivateData.VerboseForegroundColor = $VerboseForeground
     }
 
-    if($Script:VerboseEnabled -or $SaveDebugLog) {
-        Write-Verbose "All errors that occurred were in try catch blocks and was handled correctly."
-        $Script:Logger.PreventLogCleanup = $true
-    }
-
-    $Script:Logger | Invoke-LoggerInstanceCleanup
-        if ($Script:Logger.PreventLogCleanup) {
-            Write-Host("Output Debug file written to {0}" -f $Script:Logger.FullPath)
-        }
 }
-
-# SIG # Begin signature block
-# MIINxAYJKoZIhvcNAQcCoIINtTCCDbECAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
-# gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQUEgywgjQkgR5y89o1/yPGnQqT
-# YPugggs+MIIFkTCCA3mgAwIBAgIUXLFVzgd31jXC7h7dxgMcN8IB4rUwDQYJKoZI
-# hvcNAQELBQAwNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVnaWMxFjAUBgNV
-# BAMTDUNvZGVnaWMgQ0EgRzIwHhcNMjUwMjExMTEzNzIzWhcNMjUwNDEyMTAzNzIz
-# WjBOMRwwGgYJKoZIhvcNAQkBFg1qYWt1YkBzaWl0LnBsMRIwEAYDVQQDEwlKYWt1
-# YiBSYWsxDTALBgNVBAoTBFNJSVQxCzAJBgNVBAYTAlBMMIIBIjANBgkqhkiG9w0B
-# AQEFAAOCAQ8AMIIBCgKCAQEAxgEeGDCXhGqqxa9U70bI8OQc0e0fQHL6rJEikYVU
-# Lino02O5UuX2Z2tfoxyqs0QtoDGr1rUzuyXw5wTC2AJPbMN8kYbI3/FYBW8tggAr
-# Or+2kaqWOmUf+dsXN0I7shcGY+32E1L2S6xQhpPNU90SHydH5GUBeMdbjRRwHK3v
-# ePjACCo+NMhYEl/M7iX50C1mAi1KgI1dKi1Uslmykdlu8+oByr4w0VjfGnoiaB5W
-# H3jEOrzoZTWiFm5ZMjq8YSQsk9iEHEGPmGXOtzOKN0URU9dwxxXlJP2JfvYvIhAH
-# 5/a9MTrSlEHzjLF0nWwXezra24wdQXzUulUrE7gub2AawQIDAQABo4IBfDCCAXgw
-# FgYDVR0lAQH/BAwwCgYIKwYBBQUHAwMwDgYDVR0PAQH/BAQDAgeAMB8GA1UdIwQY
-# MBaAFJXrz/R5EzTy3VAeQXtrcU5Q6BAIMIHFBgNVHSAEgb0wgbowgbcGCSsGAQQB
-# g6hkATCBqTCBpgYIKwYBBQUHAgIwgZkMgZZBcyBwZXIgdGhpcyBwb2xpY3kgaWRl
-# bnRpdHkgb2YgdGhlIHN1YmplY3QgaXMgbm90IGlkZW50aWZpZWQuIFlvdSBtdXN0
-# IG5vdCB1c2UgdGhlc2UgY2VydGlmaWNhdGVzIGZvciB2YWx1YWJsZSB0cmFuc2Fj
-# dGlvbnMuIE5PIExJQUJJTElUWSBJUyBBQ0NFUFRFRC4wCQYDVR0TBAIwADA7BgNV
-# HR8ENDAyMDCgLqAshipodHRwczovL3BraS5jb2RlZ2ljLmNvbS9jcmxzL0NvZGVn
-# aWNDQS5jcmwwHQYDVR0OBBYEFN4Q5d8nRYcB+4HTGEoVL/Oz9u2/MA0GCSqGSIb3
-# DQEBCwUAA4ICAQBdalQdCfje9KzDn0UKQLt3zploRqhk3f42pyDmR+jfFFdg0Ueh
-# WwlkaxZyvdeUffQw3OYnQjGjTfUDP1AcvCNxmRjgx4uv/NTTmG6f7mA8xqTz6ukb
-# oTHR5EWaui44pTwOCOJ4CF6SOWztAYPm6Z6k5QGSE6CjsqTsRPHWXACJRjPKCcsD
-# L5mlbEO6PmD2+7iDx3WJ3s7FZg5SgR0RezrcR/SQhXMc4/ue/5oOq8R0grHKjocx
-# pCu2VO8Y1BvEi02S/U+LnwOQtzgFySInTfyNwS4WsKJlwmR5ofd/2xgrXjF4VFk/
-# G1IBuWMuqVlxN0tpU4HSsXrzaOrsNOoYGS0oQ4FVNGbvglIFVcYzcKcHzsI2iumV
-# Vl8iiSJA7o5Q1Ifh2P2j1JGDySJzHGgdQn0osMvZ3ef6A3yHP/uS6Gi9L7zffZJK
-# JRdY0Yj6pgqWopcKN8XJavdcJbIEIYvVqTUhlFgVDYWRt1N6Owb2/iTKCbN/iueY
-# rTYlUNwLVvgz/nxzZUPVXrmZBE0xUAG7JL77tXWZz0SigDHQ43LOShWdhpgZBWMC
-# 88gyltD/kt0TbmSxEXfna6ZEeSDFmXhXJYgNQ1snh/BS2DV5cnjXDI1Ac+ukRE2V
-# nRoCjtXFggKqNY+VsIY3US4Obdg/gmLHzAAeckYYtbOiTrbLfpGv7cOiRzCCBaUw
-# ggONoAMCAQICFDowdofT+XUnwL7ki+mCzPL9Duc/MA0GCSqGSIb3DQEBDQUAMDwx
-# CzAJBgNVBAYTAlBLMRAwDgYDVQQKEwdDb2RlZ2ljMRswGQYDVQQDExJDb2RlZ2lj
-# IFJvb3QgQ0EgRzIwHhcNMjExMjA3MTAxOTU2WhcNNDkxMjA3MTAxOTU1WjA3MQsw
-# CQYDVQQGEwJQSzEQMA4GA1UEChMHQ29kZWdpYzEWMBQGA1UEAxMNQ29kZWdpYyBD
-# QSBHMjCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAIxdsKkzlHrRPy58
-# fVGka9JnRAC7Xb5Mn19MHMsCEz5ptVvdAJVFI3E1sVRR7C/jh4Wb2EE6+ngv1ABJ
-# dNFjKQjUJatIBn/5TARPPQ4XZH4wvxlf+sEXQYts1A484nEjkkSTtsLE43NMZKPO
-# jME/BHhvVi2i47t3Z6+SnIT6ucxXp5w7fIKHk5SpPCd4+Lq9EXI8PbmeL6MOmPQk
-# w3925dMlkIBG7puElq/neVlOwA23sH8tJlTtHdqzOfch8+dAcj4S906ty7egsneg
-# vHJ2iGY4ewqIfzuWK0Ym6NSxMXrmbBpgGBYPzFGTijSkqs9g1m7kzomkuK2hUNjP
-# +4QjUBNnxm9qBpVdIrw26kYk8AuJa0GiTTpCxGs+Tt/L48961UPvQnwzMQLTYEG6
-# gFZHQ2SLsAfEH7v4mbdhv1GHvv82t70MYpQZel/hCOaBzabaVV0qWf9vd7BLseq5
-# HU9rp358G57KLo8Sg7auRSt5yx1Uu3u3uJFHq2XzZVv0IiZxttcHt9ZH2vqiSvFz
-# KlD0WLiorF331XRf24zS0eOzGP1PNmSnNlMeKpW/mopsyGo/olGYjdm/qeUHqsTM
-# fnm1oRm4IENfgfur/I+O8kbRnhJVUG+K4UcZnMgWH3gCtF0VbVE8sTSFkocjymlc
-# ZI7UDdX3YsZ/brogDgPTjl3YUoDhAgMBAAGjgaMwgaAwDwYDVR0TAQH/BAUwAwEB
-# /zAOBgNVHQ8BAf8EBAMCAQYwHwYDVR0jBBgwFoAUsL8sJ62K4SFQtz1Rq8JX5g0W
-# ezowPQYDVR0fBDYwNDAyoDCgLoYsaHR0cHM6Ly9wa2kuY29kZWdpYy5jb20vY3Js
-# cy9Db2RlZ2ljUm9vdC5jcmwwHQYDVR0OBBYEFJXrz/R5EzTy3VAeQXtrcU5Q6BAI
-# MA0GCSqGSIb3DQEBDQUAA4ICAQANG37Y2KcjlJZ7Roc9hnJX5Sl+gklV0ziUwSAs
-# Vzd3Zh3RNYnL0nAbQxirWzrSyDMy9pYILONejb/CU9EBGunFUP5W3IUjaX1uQcgg
-# QcS8si0VbEMrX3WpzrRCLQveey95rqjwsSlUZLP+pYEqf+ssI9fPziHP8PdvbCen
-# t8MxiFwiz0A0pWFioyk53dcua4bRFwHGzd0PdkmCH0KdsC17GWFfM1bdn3SLapQH
-# Wzv3B+fl18xSYzGeDdTO4DIGOxRRUEJBRp7qtNr/lfYuotruPjm59h/NmzMsQ9NJ
-# 2mJDcHObL69EiKFaUdE4bTHuEczaiLkSlHQKSekMYxDeSVfanbhbqn2VEbxu7JJV
-# r1XM9CC2H3Kjx18QnULztQMsJB+UViwhX2Qr8y7jEYnqDWSBbtHNl7ua78pJd2QE
-# FMYO6RNLMiSTWSup5M5wwBsEbCABVv53HIl1LM4eXVTINdXyd6YIFvrpKuvfQ9vZ
-# x9HblPk8XKhie0Ja+xKcqrWc+6OK86DXm8X4qOrjklniX9m1cKxM3RerFLPWZXxF
-# va/xCKcWbJmXyU9PtvTMRAJdvPVQeNsNeCC5Tr0iDARfuMT+o3YMtEfRx9AZPtBR
-# wEHUPF4N6b7vxrXZFz6MlDLYc8SMCBYzdPmI5/xtSQjFuOaE+XolwfQpq9uuXXnV
-# /pcuwTGCAfAwggHsAgEBME8wNzELMAkGA1UEBhMCUEsxEDAOBgNVBAoTB0NvZGVn
-# aWMxFjAUBgNVBAMTDUNvZGVnaWMgQ0EgRzICFFyxVc4Hd9Y1wu4e3cYDHDfCAeK1
-# MAkGBSsOAwIaBQCgeDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
-# DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MCMGCSqGSIb3DQEJBDEWBBRKX/QwKoRdXtIH7u8BM1WRtMKWUTANBgkqhkiG9w0B
-# AQEFAASCAQCYzdFQPzTYTtJdO6Jd+29lueIBOb8/scx2+oyq0hylsUL5sdrmqf6m
-# rlnfUVxuvJbYME8or6jJgUhSjFdMcIXC3OFLi5MPIbXpKmxMAO++R6JwnGIijDM8
-# 1L0pNSNd7iDwkSkzIY9LUjSLCUebVVq26tg2ESaOt07oOiB5Fx5A0I8qofLTjUPL
-# 2RyzYgTI7Bm5/UIn41uBeMItqHC3bE5sAgTkAoJYuVkCtul8wXuEnzvspsPlAuCC
-# LuQi1c+ywdiZXZiEuz5YjfD8qm2aMVbRBeKwfqCczMVazjsDQ3TkOLt2C3WMXQcQ
-# eo0Gzi7ZmUjm0yRpErU9FTNoVrR2cBrU
-# SIG # End signature block
